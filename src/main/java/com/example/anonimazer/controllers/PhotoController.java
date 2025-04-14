@@ -24,6 +24,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.Principal;
+import java.util.List;
 
 @Controller
 @RequestMapping("/anonimazer/photo")
@@ -43,49 +44,77 @@ public class PhotoController {
     }
 
     @PostMapping("/upload")
-    public String handleFileUpload(@RequestParam("file") MultipartFile file,
+    public String handleFileUpload(@RequestParam("files") MultipartFile[] files,
                                    RedirectAttributes redirectAttributes) throws IOException {
 
-        if (file.isEmpty()) {
-            return "redirect:/upload.html";
+        if (files.length == 0) {
+            return "redirect:/anonimazer/photo/result";
         }
 
-        // Создаём папку uploads, если нет
         Path uploadPath = Paths.get(UPLOAD_DIR);
         if (!Files.exists(uploadPath)) {
             Files.createDirectories(uploadPath);
         }
 
-        // Сохраняем файл
-        String filename = System.currentTimeMillis() + "_" + file.getOriginalFilename();
-        Path destination = uploadPath.resolve(filename);
-        Files.copy(file.getInputStream(), destination, StandardCopyOption.REPLACE_EXISTING);
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String username = auth.getName();
-        User user = userService.findByLogin(username).orElseThrow(); // получаем текущего пользователя
+        User user = userService.findByLogin(username).orElseThrow();
 
-        Photo photo = new Photo();
-        photo.setFilename(filename);
-        photo.setOwner(user);
-        photoRepository.save(photo);
+        for (MultipartFile file : files) {
+            if (!file.isEmpty()) {
+                String filename = System.currentTimeMillis() + "_" + file.getOriginalFilename();
+                Path destination = uploadPath.resolve(filename);
+                Files.copy(file.getInputStream(), destination, StandardCopyOption.REPLACE_EXISTING);
 
-        // Перенаправляем на страницу результата
-        redirectAttributes.addAttribute("filename", filename);
+                Photo photo = new Photo();
+                photo.setFilename(filename);
+                photo.setOwner(user);
+                photoRepository.save(photo);
+            }
+        }
+
         return "redirect:/anonimazer/photo/result";
     }
 
     @GetMapping("/result")
-    public String showResult(@RequestParam("filename") String filename, Model model, Principal principal) {
+    public String showResult(@RequestParam(value = "filename", required = false) String filename,
+                             Model model, Principal principal) {
+
+        User user = userService.findByLogin(principal.getName())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+
+        List<Photo> photos = photoRepository.findByOwner(user);
+
+        List<String> filenames = photos.stream()
+                .map(Photo::getFilename)
+                .toList();
+
+        model.addAttribute("filenames", filenames);
+        return "result";
+    }
+
+    @PostMapping("/delete")
+    public String deletePhoto(@RequestParam("filename") String filename, Principal principal, RedirectAttributes redirectAttributes) {
         Photo photo = photoRepository.findByFilename(filename)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
 
-        // проверка, текущий ли пользователь — владелец
+        // Проверка владельца
         if (!photo.getOwner().getLogin().equals(principal.getName())) {
-            System.out.println("redirect");
             return "forbidden";
         }
 
-        model.addAttribute("filename", filename);
-        return "result";
+        // Удаление файла
+        try {
+            Path path = Paths.get("uploads").resolve(filename);
+            Files.deleteIfExists(path);
+        } catch (IOException e) {
+            e.printStackTrace(); // можно логировать
+        }
+
+        // Удаление из базы данных
+        photoRepository.delete(photo);
+
+        // Редирект на result без filename, чтобы показать все оставшиеся
+        return "redirect:/anonimazer/photo/result";
     }
 }

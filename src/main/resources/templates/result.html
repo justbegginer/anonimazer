@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Результат загрузки</title>
+    <title>Загруженные изображения</title>
     <style>
         body {
             font-family: 'Segoe UI', sans-serif;
@@ -16,27 +16,294 @@
 
         .container {
             background-color: rgba(255, 255, 255, 0.95);
-            padding: 40px 50px;
+            padding: 30px 40px;
             border-radius: 20px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-            text-align: center;
+            display: flex;
+            max-height: 90vh;
+            max-width: 95vw;
+            width: 80vw;
+            overflow-y: auto;
         }
 
-        img {
-            max-width: 100%;
+        .controls {
+            min-width: 250px;
+            text-align: left;
+        }
+
+        .controls h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+
+        .controls label,
+        .controls select,
+        .controls input,
+        .controls button,
+        .controls a {
+            display: block;
+            width: 100%;
+            margin-bottom: 15px;
+            text-decoration: none;
+        }
+
+        .controls select,
+        .controls input {
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+        }
+
+        .controls button {
+            padding: 10px;
+            background-color: #3498db;
+            color: white;
+            border: none;
             border-radius: 10px;
-            margin-top: 20px;
+            cursor: pointer;
+            font-size: 15px;
+        }
+
+        .gallery {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            align-content: flex-start;
+            width: 100%;
+            max-width: 900px;
+        }
+
+        .gallery img {
+            max-width: 200px;
+            border-radius: 10px;
+        }
+
+        .galleries {
+            display: flex;
+            flex-direction: row;
+            gap: 30px;
+            flex-wrap: wrap;
+            max-width: 100%;
+        }
+
+        .gallery-container {
+            display: flex;
+            flex-wrap: wrap; /* главное! */
+            gap: 20px;
+            align-items: flex-start;
+            max-width: 900px; /* по желанию */
+            padding: 0 40px 40px 0;
+        }
+
+        .gallery-container div {
+            flex: 0 0 auto;
+        }
+
+        .gallery-container img {
+            max-width: 200px;
+            border-radius: 10px;
+        }
+
+        .image-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        .image-wrapper img {
+            display: block;
+            max-width: 200px;
+            border-radius: 10px;
+        }
+
+        .delete-button {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background-color: rgba(231, 76, 60, 0.9); /* красный */
+            border: none;
+            border-radius: 50%;
+            color: white;
+            font-size: 14px;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            line-height: 24px;
+            text-align: center;
+            padding: 0;
+        }
+
+        .delete-button:hover {
+            background-color: rgba(192, 57, 43, 0.9);
         }
 
         h2 {
             color: #2c3e50;
         }
+
+        .control-section {
+            margin-bottom: 35px;
+        }
+
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.4); /* полупрозрачный черный */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 6px solid #ccc;
+            border-top: 6px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
     </style>
 </head>
 <body>
 <div class="container">
-    <h2>Изображение загружено</h2>
-    <img th:src="@{'/uploads/' + ${filename}}" alt="Загруженное изображение">
+
+    <div class="galleries">
+        <div class="gallery">
+            <h2>Загруженные изображения</h2>
+            <div class="gallery-container" id="originalGallery">
+                <div class="image-wrapper" th:each="filename : ${filenames}">
+                    <img th:src="@{'/uploads/' + ${filename}}" alt="Загруженное изображение">
+                    <form th:action="@{/anonimazer/photo/delete}" method="post">
+                        <input type="hidden" name="filename" th:value="${filename}">
+                        <button type="submit" class="delete-button">&times;</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div id="processedSection" class="gallery" style="display: none;">
+            <div class="gallery">
+                <h2>Обработанные изображения</h2>
+                <div class="gallery-container" id="processedGallery">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <h2>Управление</h2>
+
+        <div class="control-section">
+            <label for="maskType">Тип анонимизации:</label>
+            <select id="maskType" name="maskType">
+                <option value="pixel">Мозаика</option>
+                <option value="box">Чёрный квадрат</option>
+                <option value="eyes">Полоска на глаза</option>
+            </select>
+            <button id="blurAllBtn">Заблюрить</button>
+        </div>
+
+        <div class="control-section">
+            <form id="uploadForm" action="/anonimazer/photo/upload" method="post" enctype="multipart/form-data">
+                <input type="file" id="uploadImage" name="files" multiple accept="image/*" style="display: none;" required>
+                <button type="button" onclick="document.getElementById('uploadImage').click()">Загрузить изображение</button>
+            </form>
+        </div>
+
+        <div class="control-section">
+            <a id="downloadZip" href="#" download="blurred_images.zip" style="display:none; margin-top: 10px">
+                <button type="button">Скачать архив</button>
+            </a>
+        </div>
+    </div>
+
+</div>
+<div id="loadingOverlay" class="overlay" style="display: none;">
+    <div class="spinner"></div>
 </div>
 </body>
+<script>
+    document.getElementById('uploadImage').addEventListener('change', function () {
+        if (this.files.length > 0) {
+            document.getElementById('uploadForm').submit();
+        }
+    });
+
+    document.getElementById('blurAllBtn').addEventListener('click', async function () {
+        const overlay = document.getElementById('loadingOverlay');
+        overlay.style.display = "flex";
+
+        try {
+            const style = document.getElementById('maskType').value;
+            const blocks = document.querySelectorAll('.image-wrapper');
+            const processedGallery = document.getElementById('processedGallery');
+            const files = [];
+
+            for (const block of blocks) {
+                const img = block.querySelector('img');
+                const filename = img.src.split('/').pop();
+
+                const blob = await fetch(`/uploads/${filename}`).then(r => r.blob());
+                const formData = new FormData();
+                formData.append("file", blob, filename);
+
+                const response = await fetch(`http://localhost:5000/blur-faces?style=${style}`, {
+                    method: "POST",
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const resultBlob = await response.blob();
+                    const resultUrl = URL.createObjectURL(resultBlob);
+
+                    const blurredImg = document.createElement('img');
+                    blurredImg.src = resultUrl;
+                    blurredImg.alt = "Заблюренный результат";
+                    blurredImg.style.border = "2px dashed #333";
+                    blurredImg.style.marginTop = "10px";
+
+                    const processedWrapper = document.createElement('div');
+                    processedWrapper.className = 'image-wrapper';
+                    processedWrapper.appendChild(blurredImg);
+                    processedGallery.appendChild(processedWrapper);
+
+                    files.push({ blob: resultBlob, name: filename });
+                }
+            }
+
+            const archiveFormData = new FormData();
+            for (let file of files) {
+                archiveFormData.append("files", file.blob, file.name);
+            }
+
+            const zipResponse = await fetch("http://localhost:5000/create-zip", {
+                method: "POST",
+                body: archiveFormData
+            });
+
+            if (zipResponse.ok) {
+                const zipBlob = await zipResponse.blob();
+                const zipUrl = URL.createObjectURL(zipBlob);
+
+                const link = document.getElementById("downloadZip");
+                link.href = zipUrl;
+                link.style.display = "inline-block";
+                document.getElementById("processedSection").style.display = "block";
+            }
+
+        } finally {
+            overlay.style.display = "none"; // скрыть
+        }
+    });
+</script>
 </html>
